@@ -67,7 +67,7 @@ export default function Login() {
           className="card w-full max-w-md p-7 sm:p-9"
         >
           <div className="mb-7 flex items-center gap-3">
-            <img src="/favicon.svg" alt="" className="size-12 drop-shadow" />
+            <img src="/brand/logo-256.webp" alt="" className="size-12 drop-shadow" />
             <div>
               <p className="font-display text-xl font-semibold leading-tight">Maruthi Timber Depot</p>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teak-600">Staff sign in</p>

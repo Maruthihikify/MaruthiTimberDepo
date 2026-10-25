@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { plankUrl, endGrainCanvas, type WoodTone } from '../lib/wood'
 
-/** Brand mark: Hanuman's gada (mace) on a teak log end, in a saffron medallion — the same file as the favicon. */
+/** Brand mark: a cast-brass gada (Hanuman's mace) set on a sawn teak log end — rendered by scripts/brand. */
 export function LogoMark({ size = 36, className = '' }: { size?: number; className?: string }) {
-  return <img src="/favicon.svg" width={size} height={size} alt="" className={className} draggable={false} />
+  return <img src="/brand/logo-256.webp" width={size} height={size} alt="" className={className} draggable={false} />
 }
 
 /** true once the element has scrolled into view (stays true). */
