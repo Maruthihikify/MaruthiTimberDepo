@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env.local
+.env.*.local
+.vercel
+.supabase
+supabase/.temp
+*.log
+.DS_Store
+Thumbs.db
+coverage
+*.tsbuildinfo
+*.local.md
