@@ -13,7 +13,7 @@ const SIDEBAR_TONE = { base: '#9A6236', grain: '#5E361B', rings: 5, figure: 0.5,
 function Brand({ light = false }: { light?: boolean }) {
   return (
     <Link to="/app" className="flex items-center gap-2.5">
-      <img src="/favicon.svg" alt="" className="size-9 drop-shadow-[0_4px_10px_rgba(69,38,26,0.45)]" />
+      <img src="/brand/logo-256.webp" alt="" className="size-9 drop-shadow-[0_4px_10px_rgba(69,38,26,0.45)]" />
       <span className="leading-tight">
         <span className={`block font-display text-[17px] font-semibold ${light ? 'text-teak-50' : 'text-ink'}`}>Maruthi Timber</span>
         <span className={`block text-[10px] font-bold uppercase tracking-[0.22em] ${light ? 'text-teak-200' : 'text-teak-600'}`}>Depot · ERP</span>
@@ -158,7 +158,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="no-print sticky top-0 z-20 border-b border-line/70 bg-canvas/80 backdrop-blur-xl">
           <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-2 px-3 sm:h-16 sm:px-6">
             <button className="grid size-10 place-items-center rounded-xl text-ink hover:bg-teak-50 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><Menu className="size-5" /></button>
-            <div className="lg:hidden"><img src="/favicon.svg" alt="" className="size-7" /></div>
+            <div className="lg:hidden"><img src="/brand/logo-256.webp" alt="" className="size-7" /></div>
             <AnimatePresence mode="wait">
               <motion.p key={title} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}
                 className="min-w-0 truncate font-display text-lg font-semibold text-ink sm:hidden">{title}</motion.p>

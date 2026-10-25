@@ -1,0 +1,309 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Maruthi emblem renderer</title>
+<style>
+  body{margin:0;background:#FBF6EE;font:14px system-ui;color:#2b1c11}
+  #wrap{display:flex;gap:28px;align-items:center;padding:24px;flex-wrap:wrap}
+  #big{width:620px;height:620px}
+  .small{display:flex;gap:18px;align-items:end}
+  .dark{background:#7A4A26;padding:14px;border-radius:12px}
+  #status{padding:0 24px}
+</style></head>
+<body>
+<div id="wrap"><canvas id="big" width="1024" height="1024"></canvas>
+  <div><div class="small"><img id="s256" width="128"><img id="s64" width="64"><img id="s32" width="32"><img id="s16" width="16"></div>
+  <div class="small dark" style="margin-top:16px"><img id="d64" width="64"><img id="d32" width="32"></div></div></div>
+<p id="status">rendering…</p>
+<script>
+const S = 1024, C = S / 2
+const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v)
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t) }
+const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
+
+function makeNoise(seed) {
+  const perm = new Uint8Array(512), p = new Uint8Array(256)
+  for (let i = 0; i < 256; i++) p[i] = i
+  let s = seed * 9301 + 49297
+  for (let i = 255; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor((s / 233280) * (i + 1)); [p[i], p[j]] = [p[j], p[i]] }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255]
+  const g = new Float32Array(256); for (let i = 0; i < 256; i++) g[i] = (perm[i] / 255) * 2 - 1
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10)
+  const n2 = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, X = xi & 255, Y = yi & 255
+    const a = g[perm[X + perm[Y]]], b = g[perm[X + 1 + perm[Y]]], c = g[perm[X + perm[Y + 1]]], d = g[perm[X + 1 + perm[Y + 1]]]
+    const u = fade(xf), v = fade(yf); return (a + (b - a) * u) * (1 - v) + (c + (d - c) * u) * v }
+  const fbm = (x, y, o = 4) => { let f = 0, a = 0.5, fr = 1; for (let i = 0; i < o; i++) { f += a * n2(x * fr, y * fr); fr *= 2.03; a *= 0.5 } return f }
+  return { n2, fbm }
+}
+const loadImg = (src) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src })
+
+// ───────────── the log end: real-looking teak end grain + scanned bark rim ─────────────
+async function drawLog(ctx, o) {
+  const { n2, fbm } = makeNoise(o.seed)
+  const bark = await loadImg('/tex/bark_diff.webp')
+  const bc = document.createElement('canvas'); bc.width = bark.width; bc.height = bark.height
+  const bx = bc.getContext('2d'); bx.drawImage(bark, 0, 0)
+  const bd = bx.getImageData(0, 0, bc.width, bc.height).data, BW = bc.width, BH = bc.height
+  const img = ctx.createImageData(S, S), d = img.data
+  const px0 = C + 9, py0 = C - 7 // pith slightly off centre, as in real logs
+  const early = hex('#C1823F'), late = hex('#7A4320'), sapE = hex('#DDB67C'), sapL = hex('#B4834C'), pithC = hex('#3B2210')
+  const cracks = [{ a: -0.62, len: 0.58 }, { a: 2.55, len: 0.36 }]
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const dx = x - C, dy = y - C, r = Math.hypot(dx, dy), ang = Math.atan2(dy, dx)
+    const wob = fbm(Math.cos(ang) * 1.4 + 3, Math.sin(ang) * 1.4 + 3, 3) * 0.06 + n2(ang * 9, 2.2) * 0.01
+    const rOut = o.rOut * (1 + wob + n2(ang * 23, 9.1) * 0.012), rBark = o.rBark * (1 + wob * 0.9)
+    const i = (y * S + x) * 4
+    if (r > rOut + 1.5) { d[i + 3] = 0; continue }
+    let col
+    if (r > rBark) {
+      // bark: wrap the scanned bark around the rim (furrows run around the circumference)
+      const u = (((ang + Math.PI) / (Math.PI * 2)) * BW * 4) % BW
+      const v = clamp((r - rBark) / (rOut - rBark)) * BH * 0.32 + 40
+      const bi = ((Math.floor(v) % BH) * BW + Math.floor(u)) * 4
+      const t = (r - rBark) / (rOut - rBark)
+      const shade = 0.62 + 0.38 * Math.sin(t * Math.PI) // rounded edge catches light in the middle
+      col = [bd[bi] * shade * 0.98, bd[bi + 1] * shade * 0.86, bd[bi + 2] * shade * 0.72]
+      if (t < 0.16) col = mix(col, hex('#8E5A30'), 0.75 * (1 - t / 0.16)) // inner bark (phloem), lighter brown
+      if (t < 0.035) col = mix(col, hex('#3A2414'), 0.6) // cambium line
+    } else {
+      const qx = x - px0, qy = y - py0, rp = Math.hypot(qx, qy), ap = Math.atan2(qy, qx)
+      const warp = fbm(Math.cos(ap) * 2.1 + 5, Math.sin(ap) * 2.1 + 5, 4) * 15 + fbm(qx * 0.0045, qy * 0.0045, 3) * 10
+      const ringPos = (rp + warp + 26 * fbm(rp * 0.0045, 2.2, 2)) / (11.5 - rp * 0.004)
+      const idx = Math.floor(ringPos), t = ringPos - idx
+      const widthVar = 0.5 + 0.28 * n2(idx * 1.37, 7.3)
+      const strength = 0.25 + 0.55 * Math.abs(n2(idx * 0.91, 1.3)) + 0.2 * smooth(0.6, 1, n2(idx * 2.3, 5.1))
+      const lw = smooth(widthVar, widthVar + 0.26, t) * (1 - smooth(0.93, 1, t)) * strength
+      const sapT = smooth(rBark * 0.875, rBark * 0.935, rp)
+      const heartDeep = (1 - smooth(0, rBark * 0.55, rp)) * 0.18
+      let e = mix(early, hex('#9A5A2A'), heartDeep), l = mix(late, hex('#5A2E14'), heartDeep)
+      e = mix(e, sapE, sapT); l = mix(l, sapL, sapT)
+      col = mix(e, l, lw * (0.72 - sapT * 0.45))
+      // blotchy colour like real heartwood: warmer red patches and cooler olive patches
+      const blot = fbm(x * 0.003 + 11, y * 0.003, 4), blot2 = fbm(x * 0.006 + 40, y * 0.006 - 7, 3)
+      col = mix(col, hex(blot > 0 ? '#A65A26' : '#86643A'), Math.min(Math.abs(blot) * 0.55, 0.3) * (1 - sapT))
+      col = col.map((c) => c * (1 + blot2 * 0.12))
+      // medullary rays: fine light radial streaks
+      const ray = smooth(0.8, 0.96, n2(ap * 240, rp * 0.02) * 0.5 + 0.5)
+      col = mix(col, [250, 222, 176], ray * 0.06)
+      // teak pores: fine dark speckle in earlywood
+      const pore = smooth(0.6, 0.85, n2(x * 0.9, y * 0.9) * 0.5 + 0.5) * (1 - lw) * 0.16
+      col = col.map((c) => c * (1 - pore))
+      // circular-saw marks: wide shallow arcs from a blade centre far to the left, irregular depth
+      const sd = Math.hypot(x + 2400, y - C * 0.4)
+      const saw = Math.sin(sd * 0.16 + fbm(sd * 0.004, 3.3, 2) * 4) * 0.5 + 0.5
+      const saw2 = Math.sin(sd * 0.55) * 0.5 + 0.5
+      col = col.map((c) => c * (1 - saw * 0.07 * (0.6 + fbm(x * 0.01, y * 0.002, 2)) - saw2 * 0.02))
+      // fibre fuzz of a sawn face
+      col = col.map((c) => c * (1 + n2(x * 1.7, y * 1.7) * 0.035))
+      // drying checks: start at the bark, run in toward the pith, widest at the rim
+      for (const k of cracks) {
+        let da = ap - k.a - n2(rp * 0.03, k.a * 3) * 0.018 - n2(rp * 0.004, k.a) * 0.05
+        da = Math.atan2(Math.sin(da), Math.cos(da))
+        const dist = Math.abs(da) * rp
+        const reach = rBark * (1 - k.len)
+        if (rp < reach) continue
+        const f = (rp - reach) / (rBark - reach)
+        const wdt = 0.4 + 7.5 * f * f
+        if (dist < wdt + 3) {
+          const core = 1 - smooth(wdt * 0.55, wdt + 2.5, dist)
+          const fade = smooth(0, 0.12, f)
+          col = mix(col, [30, 17, 8], core * fade * 0.95)
+          col = col.map((c) => c * (1 - (1 - smooth(wdt, wdt + 3, dist)) * 0.18 * fade))
+        }
+      }
+      if (rp < 7) col = mix(col, pithC, 1 - rp / 7)
+      // soft edge darkening near the bark (oxidised sapwood)
+      col = col.map((c) => c * (1 - smooth(rBark - 14, rBark, r) * 0.28))
+    }
+    // antialias the outer edge
+    d[i] = clamp(col[0], 0, 255); d[i + 1] = clamp(col[1], 0, 255); d[i + 2] = clamp(col[2], 0, 255)
+    d[i + 3] = 255 * clamp(rOut + 1.5 - r, 0, 1)
+  }
+  ctx.putImageData(img, 0, 0)
+  // light: warm key from top-left, oiled-surface sheen, slight falloff bottom-right
+  ctx.save()
+  ctx.globalCompositeOperation = 'source-atop'
+  let g = ctx.createRadialGradient(C - 230, C - 260, 20, C - 150, C - 170, 760)
+  g.addColorStop(0, 'rgba(255,236,200,0.28)'); g.addColorStop(0.45, 'rgba(255,220,170,0.08)'); g.addColorStop(1, 'rgba(40,20,5,0.30)')
+  ctx.fillStyle = g; ctx.fillRect(0, 0, S, S)
+  ctx.restore()
+}
+
+// ───────────── the brass gada (Hanuman's mace) ─────────────
+function metalGradX(ctx, x0, x1, tone = 'brass') {
+  const g = ctx.createLinearGradient(x0, 0, x1, 0)
+  const stops = tone === 'brass'
+    ? [[0, '#3E2905'], [0.1, '#7A5612'], [0.24, '#D4A23A'], [0.33, '#FFF1C2'], [0.42, '#F2C752'], [0.62, '#B7861E'], [0.84, '#6C4A0D'], [1, '#2E1E04']]
+    : [[0, '#4A1503'], [0.18, '#A63A0C'], [0.34, '#F28A3A'], [0.46, '#E5651B'], [0.7, '#A8400E'], [1, '#4A1503']]
+  for (const [o, c] of stops) g.addColorStop(o, c)
+  return g
+}
+function sphere(ctx, cx, cy, r) {
+  const g = ctx.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.04, cx - r * 0.1, cy - r * 0.1, r * 1.08)
+  g.addColorStop(0, '#FFF9E0'); g.addColorStop(0.1, '#FCE6A0'); g.addColorStop(0.3, '#ECBA48'); g.addColorStop(0.58, '#B5841E')
+  g.addColorStop(0.82, '#6E4A0D'); g.addColorStop(1, '#2F1F04')
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill()
+  // warm bounce light from the wood below
+  const b = ctx.createRadialGradient(cx + r * 0.3, cy + r * 0.75, r * 0.05, cx + r * 0.2, cy + r * 0.6, r * 0.75)
+  b.addColorStop(0, 'rgba(255,170,80,0.35)'); b.addColorStop(1, 'rgba(255,170,80,0)')
+  ctx.fillStyle = b; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill()
+}
+function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r) }
+
+function gadaSilhouette(ctx, o) {
+  const { cx, headY, headR } = o
+  ctx.beginPath()
+  ctx.arc(cx, headY, headR, 0, Math.PI * 2)
+  ctx.rect(cx - 62, headY + headR - 22, 124, 70)
+  ctx.rect(cx - 34, headY + headR + 40, 68, o.shaftEnd - (headY + headR + 40))
+  ctx.arc(cx, o.shaftEnd + 30, 42, 0, Math.PI * 2)
+  ctx.moveTo(cx, headY - headR - 92); ctx.lineTo(cx + 22, headY - headR - 10); ctx.lineTo(cx - 22, headY - headR - 10)
+}
+
+function drawGada(ctx, o) {
+  const { cx, headY, headR, shaftEnd } = o
+  // contact shadow on the wood
+  ctx.save(); ctx.translate(26, 30); ctx.filter = 'blur(18px)'; ctx.fillStyle = 'rgba(30,14,4,0.55)'; gadaSilhouette(ctx, o); ctx.fill(); ctx.restore()
+  ctx.save(); ctx.translate(8, 10); ctx.filter = 'blur(5px)'; ctx.fillStyle = 'rgba(25,10,2,0.45)'; gadaSilhouette(ctx, o); ctx.fill(); ctx.restore()
+
+  // shaft
+  const sx0 = cx - 34, sx1 = cx + 34, sTop = headY + headR + 30
+  ctx.fillStyle = metalGradX(ctx, sx0, sx1); rrect(ctx, sx0, sTop, 68, shaftEnd - sTop, 14); ctx.fill()
+  // saffron cloth wound round the grip, tied off with a short tail
+  const gy0 = sTop + (shaftEnd - sTop) * 0.34, gy1 = sTop + (shaftEnd - sTop) * 0.8
+  ctx.save(); rrect(ctx, sx0 - 8, gy0, 84, gy1 - gy0, 16); ctx.clip()
+  ctx.fillStyle = metalGradX(ctx, sx0 - 8, sx1 + 8, 'cloth'); ctx.fillRect(sx0 - 10, gy0, 90, gy1 - gy0)
+  for (let y = gy0 - 26, k = 0; y < gy1 + 26; y += 24, k++) {
+    const h = 24 + (k % 3) * 2
+    const band = ctx.createLinearGradient(0, y - 6, 0, y + h)
+    band.addColorStop(0, 'rgba(255,190,120,0.42)'); band.addColorStop(0.25, 'rgba(255,150,70,0.10)')
+    band.addColorStop(0.75, 'rgba(90,20,0,0.18)'); band.addColorStop(1, 'rgba(60,10,0,0.55)')
+    ctx.fillStyle = band
+    ctx.beginPath(); ctx.moveTo(sx0 - 10, y + 10); ctx.bezierCurveTo(cx - 10, y + 2, cx + 10, y - 4, sx1 + 10, y - 9)
+    ctx.lineTo(sx1 + 10, y - 9 + h); ctx.bezierCurveTo(cx + 10, y - 4 + h, cx - 10, y + 2 + h, sx0 - 10, y + 10 + h); ctx.closePath(); ctx.fill()
+  }
+  ctx.globalCompositeOperation = 'multiply'
+  const cyl = ctx.createLinearGradient(sx0 - 8, 0, sx1 + 8, 0)
+  cyl.addColorStop(0, 'rgba(70,20,5,1)'); cyl.addColorStop(0.3, 'rgba(255,255,255,1)'); cyl.addColorStop(0.55, 'rgba(240,220,210,1)'); cyl.addColorStop(1, 'rgba(60,15,5,1)')
+  ctx.fillStyle = cyl; ctx.fillRect(sx0 - 10, gy0, 90, gy1 - gy0)
+  ctx.globalCompositeOperation = 'source-over'
+  for (let k = 0; k < 2200; k++) {
+    const x = sx0 - 8 + Math.random() * 84, y = gy0 + Math.random() * (gy1 - gy0)
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,215,160,0.10)' : 'rgba(70,15,0,0.12)'; ctx.fillRect(x, y, 1.4, 1.4)
+  }
+  ctx.restore()
+  // brass binding rings at both ends of the cloth
+  for (const y of [gy0 - 9, gy1 - 7]) { ctx.fillStyle = metalGradX(ctx, sx0 - 11, sx1 + 11); rrect(ctx, sx0 - 11, y, 90, 17, 7); ctx.fill() }
+
+  // pommel
+  sphere(ctx, cx, shaftEnd + 30, 42)
+
+  // collar: stacked turned rings under the head
+  const rings = [[headY + headR - 20, 124, 26], [headY + headR + 4, 100, 18], [headY + headR + 20, 80, 16]]
+  for (const [y, w, h] of rings) {
+    ctx.fillStyle = metalGradX(ctx, cx - w / 2, cx + w / 2); rrect(ctx, cx - w / 2, y, w, h, h / 2); ctx.fill()
+    ctx.fillStyle = 'rgba(255,245,210,0.55)'; ctx.fillRect(cx - w / 2 + 8, y + 2, w - 16, 1.5)
+    ctx.fillStyle = 'rgba(40,25,4,0.45)'; ctx.fillRect(cx - w / 2 + 6, y + h - 3, w - 12, 2)
+  }
+
+  // head: fluted sphere
+  sphere(ctx, cx, headY, headR)
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, headY, headR, 0, Math.PI * 2); ctx.clip()
+  for (let i = 1; i < 8; i++) {
+    const phi = -Math.PI / 2 + (i * Math.PI) / 8, rx = Math.abs(headR * Math.sin(phi)), right = phi > 0
+    // groove (dark) and its lit edge give each flute depth
+    ctx.lineWidth = 4.5; ctx.strokeStyle = 'rgba(58,34,4,0.55)'
+    ctx.beginPath(); ctx.ellipse(cx, headY, Math.max(rx, 0.5), headR, 0, right ? -Math.PI / 2 : Math.PI / 2, right ? Math.PI / 2 : Math.PI * 1.5); ctx.stroke()
+    ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(255,238,180,0.45)'
+    ctx.beginPath(); ctx.ellipse(cx + (right ? -4 : 4), headY, Math.max(rx, 0.5), headR, 0, right ? -Math.PI / 2 : Math.PI / 2, right ? Math.PI / 2 : Math.PI * 1.5); ctx.stroke()
+  }
+  if (true) { ctx.lineWidth = 4.5; ctx.strokeStyle = 'rgba(58,34,4,0.5)'; ctx.beginPath(); ctx.moveTo(cx, headY - headR); ctx.lineTo(cx, headY + headR); ctx.stroke() }
+  // raised equator band with small bosses
+  const band = ctx.createLinearGradient(0, headY - 16, 0, headY + 16)
+  band.addColorStop(0, '#6E4A0D'); band.addColorStop(0.3, '#FFEDB0'); band.addColorStop(0.55, '#E2AE3E'); band.addColorStop(1, '#4E3308')
+  ctx.fillStyle = band; ctx.fillRect(cx - headR, headY - 15, headR * 2, 30)
+  const curve = ctx.createLinearGradient(cx - headR, 0, cx + headR, 0)
+  curve.addColorStop(0, 'rgba(30,18,2,0.75)'); curve.addColorStop(0.25, 'rgba(30,18,2,0)'); curve.addColorStop(0.7, 'rgba(30,18,2,0.1)'); curve.addColorStop(1, 'rgba(30,18,2,0.8)')
+  ctx.fillStyle = curve; ctx.fillRect(cx - headR, headY - 15, headR * 2, 30)
+  for (let k = -3; k <= 3; k++) {
+    const bx = cx + Math.sin((k / 4) * (Math.PI / 2)) * headR * 0.95
+    const br = 9 * Math.cos((k / 4) * (Math.PI / 2)) + 2
+    sphere(ctx, bx, headY, br)
+  }
+  ctx.restore()
+  // rim light on the head edge
+  ctx.save(); ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,220,150,0.35)'; ctx.beginPath(); ctx.arc(cx, headY, headR - 1.5, Math.PI * 0.95, Math.PI * 1.55); ctx.stroke(); ctx.restore()
+  // finial
+  const ft = headY - headR
+  ctx.fillStyle = metalGradX(ctx, cx - 22, cx + 22); ctx.beginPath(); ctx.moveTo(cx, ft - 92); ctx.lineTo(cx + 20, ft - 14); ctx.lineTo(cx - 20, ft - 14); ctx.closePath(); ctx.fill()
+  ctx.fillStyle = metalGradX(ctx, cx - 30, cx + 30); rrect(ctx, cx - 30, ft - 18, 60, 16, 8); ctx.fill()
+  sphere(ctx, cx, ft - 50, 19)
+  // specular hot spots
+  ctx.save(); ctx.filter = 'blur(7px)'; ctx.fillStyle = 'rgba(255,255,245,0.85)'
+  ctx.beginPath(); ctx.ellipse(cx - headR * 0.42, headY - headR * 0.45, 26, 16, -0.6, 0, Math.PI * 2); ctx.fill()
+  ctx.beginPath(); ctx.ellipse(cx - 13, (gy1 + shaftEnd) / 2, 4, 30, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.restore()
+  // sindoor (vermilion) tilak on the head, as offered on Hanuman's gada at temples
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, headY, headR, 0, Math.PI * 2); ctx.clip()
+  ctx.filter = 'blur(1.2px)'
+  const tx = cx - 6, tyy = headY - headR * 0.5
+  const tg = ctx.createRadialGradient(tx - 4, tyy - 8, 2, tx, tyy, 30)
+  tg.addColorStop(0, '#F2643A'); tg.addColorStop(0.6, '#D8381A'); tg.addColorStop(1, 'rgba(170,30,10,0.85)')
+  ctx.fillStyle = tg; ctx.beginPath(); ctx.ellipse(tx, tyy, 15, 27, -0.08, 0, Math.PI * 2); ctx.fill()
+  ctx.filter = 'none'
+  for (let k = 0; k < 260; k++) {
+    const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random())
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,140,90,0.35)' : 'rgba(120,10,0,0.3)'
+    ctx.fillRect(tx + Math.cos(a) * 14 * rr, tyy + Math.sin(a) * 26 * rr, 1.6, 1.6)
+  }
+  ctx.restore()
+}
+
+async function render(o = {}) {
+  const opt = { seed: 7, rOut: 498, rBark: 452, cx: C, headY: 350, headR: 162, shaftEnd: 846, ...o }
+  const cv = document.getElementById('big'), ctx = cv.getContext('2d')
+  ctx.clearRect(0, 0, S, S)
+  await drawLog(ctx, opt)
+  ctx.save(); ctx.beginPath(); ctx.arc(C, C, opt.rOut * 1.06, 0, Math.PI * 2); ctx.clip(); drawGada(ctx, opt); ctx.restore()
+  // final: subtle drop shadow under the whole disc is applied in CSS where used; keep PNG transparent
+  const gi = ctx.getImageData(0, 0, S, S), gd = gi.data
+  for (let i = 0; i < gd.length; i += 4) { if (!gd[i + 3]) continue; const n = (Math.random() - 0.5) * 7; gd[i] += n; gd[i + 1] += n; gd[i + 2] += n }
+  ctx.putImageData(gi, 0, 0)
+  previews(cv)
+  document.getElementById('status').textContent = 'done'
+  return 'done'
+}
+
+function down(src, size) {
+  let cur = src, w = src.width
+  while (w / 2 >= size) {
+    const c = document.createElement('canvas'); c.width = c.height = Math.round(w / 2)
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(cur, 0, 0, c.width, c.height); cur = c; w = c.width
+  }
+  const c = document.createElement('canvas'); c.width = c.height = size
+  const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(cur, 0, 0, size, size)
+  return c
+}
+function previews(cv) {
+  for (const [id, n] of [['s256', 256], ['s64', 64], ['s32', 32], ['s16', 16], ['d64', 64], ['d32', 32]]) document.getElementById(id).src = down(cv, n).toDataURL('image/png')
+}
+async function saveAll() {
+  const cv = document.getElementById('big')
+  const out = []
+  const put = async (name, canvas, type, q) => {
+    const blob = await new Promise((r) => canvas.toBlob(r, type, q))
+    const res = await fetch('/save?name=' + name, { method: 'POST', body: blob })
+    out.push(await res.json())
+  }
+  await put('logo-1024.webp', cv, 'image/webp', 0.9)
+  await put('logo-512.webp', down(cv, 512), 'image/webp', 0.9)
+  await put('logo-256.webp', down(cv, 256), 'image/webp', 0.9)
+  await put('apple-touch-icon.png', down(cv, 180), 'image/png')
+  await put('icon-192.png', down(cv, 192), 'image/png')
+  await put('favicon-64.png', down(cv, 64), 'image/png')
+  await put('favicon-32.png', down(cv, 32), 'image/png')
+  return out
+}
+window.render = render; window.saveAll = saveAll
+render()
+</script>
+</body></html>

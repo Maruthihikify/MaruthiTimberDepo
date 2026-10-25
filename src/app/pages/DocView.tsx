@@ -198,7 +198,7 @@ export function Invoice({ doc: d, lines, co, carpenter }: { doc: SalesDoc; lines
       <div className="p-5 sm:p-8 print:p-0 print:pt-2">
         <header className="flex flex-col gap-4 border-b-2 border-teak-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex gap-3">
-            <img src="/favicon.svg" alt="" className="size-14" />
+            <img src="/brand/logo-512.webp" alt="" className="size-14" />
             <div>
               <p className="font-display text-2xl font-semibold leading-tight">{co?.name ?? 'Maruthi Timber Depot'}</p>
               <p className="text-xs font-semibold text-teak-700">{co?.tagline}</p>
